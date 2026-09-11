@@ -51,7 +51,7 @@ describe('TranscriptViewRow', () => {
   it('explains the preference and shows Compact by default', () => {
     mount()
     expect(screen.getByText('Conversation display')).toBeDefined()
-    expect(screen.getByText('Controls process content in completed turns')).toBeDefined()
+    expect(screen.getByText('Controls process content in running and completed turns')).toBeDefined()
     expect(screen.getByRole('button', { name: /Compact/ }).getAttribute('aria-expanded')).toBe('false')
   })
 

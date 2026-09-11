@@ -1,12 +1,18 @@
 import type { ChatNode } from '../contract/chat-nodes.ts'
 import type {
-  ChatLocationNodeIndex, ChatNodeStore, ChatTurnProcessPresentation,
+  ChatLocationNodeIndex, ChatNodeStore, ChatTurnProcessPresentation, LiveTurnAnswer,
 } from '../contract/snapshot.ts'
 import { TURN_PROCESS_INDEPENDENT_KINDS } from '../contract/turn-process.ts'
 
 function nodeTurn(node: ChatNode | undefined): number | undefined {
   const location = node?.location
   return location?.kind === 'turn' || location?.kind === 'step' ? location.turn.turn : undefined
+}
+
+function sameLiveAnswer(left: LiveTurnAnswer | null, right: LiveTurnAnswer | null): boolean {
+  return left === right || (left !== null && right !== null
+    && left.step === right.step
+    && left.anchorSeq === right.anchorSeq)
 }
 
 function samePresentation(
@@ -18,7 +24,28 @@ function samePresentation(
     && left.turn === right.turn
     && left.turnClosed === right.turnClosed
     && left.hasExternalProcess === right.hasExternalProcess
-    && left.compactAnswer === right.compactAnswer)
+    && left.compactAnswer === right.compactAnswer
+    && sameLiveAnswer(left.liveAnswer, right.liveAnswer))
+}
+
+/**
+ * Trailing Assistant step of an open Turn: the step holding the provisional
+ * answer while the Turn runs. Used as the fold's upper bound, so process the
+ * model has already finished collapses as it is produced instead of only once
+ * the Turn closes; the trailing step itself stays visible.
+ * @param keys - ordered Chat Node keys of the Turn.
+ * @param nodes - current Chat Node store.
+ * @returns the provisional answer, or null before any Assistant step exists.
+ */
+function trailingAnswer(keys: readonly string[], nodes: ChatNodeStore): LiveTurnAnswer | null {
+  let trailing: ChatNode<'assistant-step'> | undefined
+  for (const key of keys) {
+    const node = nodes.get(key) as ChatNode | undefined
+    if (node?.kind !== 'assistant-step') continue
+    if (trailing === undefined || node.data.step > trailing.data.step) trailing = node
+  }
+  if (trailing === undefined) return null
+  return { step: trailing.data.step, anchorSeq: trailing.anchorSeq }
 }
 
 function derivePresentation(
@@ -35,6 +62,13 @@ function derivePresentation(
   const spec = control.data
   const location = control.location
   if (location.kind !== 'turn' && location.kind !== 'step') return undefined
+  const turnClosed = location.turn.status === 'closed'
+  const liveAnswer = turnClosed ? null : trailingAnswer(keys, nodes)
+  // One effective answer boundary: the finalized answer on a closed Turn, and
+  // the trailing step while it runs. A closed Turn therefore keeps the exact
+  // process range it published before.
+  const answerAnchorSeq = spec.answerAnchorSeq ?? liveAnswer?.anchorSeq ?? null
+  const answerStep = spec.answerStep ?? liveAnswer?.step ?? null
   let openingHumanAnchor: number | undefined
   for (const key of keys) {
     const node = nodes.get(key) as ChatNode | undefined
@@ -51,22 +85,23 @@ function derivePresentation(
     if (node === undefined || node.kind === 'turn-process') continue
     if ((node.kind === 'user' || node.kind === 'steering')
       && (openingHumanAnchor === undefined || node.anchorSeq > openingHumanAnchor)
-      && (spec.answerAnchorSeq === null || node.anchorSeq < spec.answerAnchorSeq)) {
+      && (answerAnchorSeq === null || node.anchorSeq < answerAnchorSeq)) {
       compactAnswer = false
     }
     if (TURN_PROCESS_INDEPENDENT_KINDS.has(node.kind)
       || node.anchorSeq < spec.processStartSeq
-      || (spec.answerAnchorSeq !== null && node.anchorSeq >= spec.answerAnchorSeq)) continue
-    if (node.kind !== 'assistant-step' || spec.answerStep === null || node.data.step !== spec.answerStep) {
+      || (answerAnchorSeq !== null && node.anchorSeq >= answerAnchorSeq)) continue
+    if (node.kind !== 'assistant-step' || answerStep === null || node.data.step !== answerStep) {
       hasExternalProcess = true
     }
   }
   return {
     turn,
     spec,
-    turnClosed: location.turn.status === 'closed',
+    turnClosed,
     hasExternalProcess,
     compactAnswer,
+    liveAnswer,
   }
 }
 

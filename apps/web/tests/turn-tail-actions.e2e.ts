@@ -134,7 +134,10 @@ describe('web e2e: assistant IconActions wait for the turn to end', () => {
     // The marker IS the synchronization: the second call is provably parked,
     // so the first step's message and tool result are already durable.
     await expect.poll(() => existsSync(marker), { timeout: 20_000 }).toBe(true)
-    expect(await page.locator('[data-turn-process]').count()).toBe(0)
+    // The shipped Concise mode folds the parked turn's finished step behind
+    // its controller while the second call streams.
+    await expect.poll(() => page.locator('[data-turn-process]').count(), { timeout: 10_000 }).toBe(1)
+    expect(await page.locator('[data-turn-process]').getAttribute('aria-expanded')).toBe('false')
     await expect.poll(
       () => page.getByRole('status').filter({ hasText: 'Deep diving...' }).isVisible(),
       { timeout: 10_000 },
@@ -147,6 +150,13 @@ describe('web e2e: assistant IconActions wait for the turn to end', () => {
     const copyButtons = page.getByRole('button', { name: 'Copy' })
     await expect.poll(() => copyButtons.count(), { timeout: 10_000 }).toBe(1)
     expect(await page.getByRole('button', { name: 'Branch into a new conversation' }).count()).toBe(0)
+    // The parked turn's statistics pill gains throughput once the first call's
+    // usage lands. Folded process stabilizes the transcript sooner, so the
+    // capture must wait for that update instead of racing it.
+    await expect.poll(
+      () => page.getByRole('button', { name: /tok\/s/ }).count(),
+      { timeout: 15_000 },
+    ).toBeGreaterThan(0)
     await copyButtons.first().focus()
     const running = await captureStableAria(page, '[class*="centerCol"]', scaffold!.workspaceCwd)
     await compareOrRefreshGolden(RUNNING_EXPECTED, running, MODE)

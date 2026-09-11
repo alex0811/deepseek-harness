@@ -70,6 +70,17 @@ export interface ChatLocationNodeIndex {
   getStep(turn: number, step: number): readonly string[]
 }
 
+/**
+ * Trailing Assistant step of a still-open Turn: the step holding the
+ * provisional answer while the Turn runs. Concise mode folds everything
+ * anchored before it, so accumulated process collapses as it is produced
+ * instead of only once the Turn closes.
+ */
+export interface LiveTurnAnswer {
+  readonly step: number
+  readonly anchorSeq: number
+}
+
 /** Cross-Node presentation facts derived for one Turn process. */
 export interface ChatTurnProcessPresentation {
   readonly turn: number
@@ -77,6 +88,12 @@ export interface ChatTurnProcessPresentation {
   readonly turnClosed: boolean
   readonly hasExternalProcess: boolean
   readonly compactAnswer: boolean
+  /**
+   * Provisional answer of an open Turn, so Concise mode folds accumulated
+   * process while the Turn runs instead of only once it closes; null on a
+   * closed Turn, where {@link TurnProcessSpec} owns the finalized boundary.
+   */
+  readonly liveAnswer: LiveTurnAnswer | null
 }
 
 /** Compatibility projection backing StatsPills and the legacy top-level snapshot fields. */

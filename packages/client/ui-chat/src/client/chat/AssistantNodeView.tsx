@@ -20,6 +20,9 @@ export const AssistantNodeView = memo(function AssistantNodeView({
     () => owner === undefined ? undefined : fileMentions(owner),
     [fileMentions, owner],
   )
+  // Only the finalized answer folds its own reasoning. A live Turn leaves the
+  // trailing step's reasoning in place, so Concise mode shows one updating
+  // Think row instead of one per step, and everything behind it stays folded.
   const reasoningHidden = turnProcess !== undefined
     && turnProcess.foldable
     && turnProcess.spec.answerStep === data.step

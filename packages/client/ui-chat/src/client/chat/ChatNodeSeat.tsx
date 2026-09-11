@@ -3,6 +3,7 @@ import { JsonBlock } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ConversationLocationDataStore, ConversationTurnDataMap } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { ChatNodeOwnerProps, ChatViewSlotProps } from '../contract/slots.ts'
 import type { ChatNode } from '../contract/chat-nodes.ts'
+import { LIVE_TURN_PROCESS_OPEN } from '../contract/store.ts'
 import { TURN_PROCESS_INDEPENDENT_KINDS } from '../contract/turn-process.ts'
 import { storedTurnProcessEntry } from '../stores.ts'
 import { useSearchableHidden } from './searchable-hidden.ts'
@@ -45,36 +46,49 @@ export const ChatNodeSeat = memo(function ChatNodeSeat({
   const turn = turnOf(routedNode)
   const processPresentation = useChatNodeProcess(nodeKey)
   const processSpec = processPresentation?.spec
+  // The fold's upper bound is the finalized answer once the Turn has one;
+  // before that the trailing live step stands in for it, so Concise mode folds
+  // finished process while the Turn runs instead of only once it closes. The
+  // trailing step itself stays visible, including its own Think row.
+  const liveAnswer = processPresentation?.liveAnswer ?? null
+  const answerStep = processSpec?.answerStep ?? liveAnswer?.step ?? null
+  const answerAnchorSeq = processSpec?.answerAnchorSeq ?? liveAnswer?.anchorSeq ?? null
   const storedEntry = useStore(state => processSpec === undefined
     ? undefined
     : storedTurnProcessEntry(state, processSpec.turn))
-  const processEntry = processSpec !== undefined
-    && processSpec.answerStep !== null
-    && storedEntry?.answerStep === processSpec.answerStep
+  // A live expansion is stored under a Turn-level sentinel: the trailing step
+  // advances as the model works, and re-keying on it would re-collapse a
+  // reader's manual expansion at every step boundary.
+  const processEntry = storedEntry !== undefined
+    && (storedEntry.answerStep === LIVE_TURN_PROCESS_OPEN
+      || (answerStep !== null && storedEntry.answerStep === answerStep))
     ? storedEntry
     : undefined
   const processOpen = processEntry !== undefined
   const setOpen = useCallback((open: boolean) => {
-    if (processSpec !== undefined && processSpec.answerStep !== null) {
-      actions.setTurnProcessOpen(processSpec.turn, processSpec.answerStep, open)
-    }
-  }, [actions, processSpec])
+    if (processSpec === undefined || answerStep === null) return
+    const answerIsFinal = processSpec.answerStep !== null
+    actions.setTurnProcessOpen(
+      processSpec.turn,
+      open && !answerIsFinal ? LIVE_TURN_PROCESS_OPEN : answerStep,
+      open,
+    )
+  }, [actions, processSpec, answerStep])
   const processWindowReady = processSpec !== undefined
     && processPresentation !== undefined
     && compactTranscript
-    && processSpec.answerAnchorSeq !== null
+    && answerAnchorSeq !== null
     && processPresentation.turn === processSpec.turn
-    && processPresentation.turnClosed
     && !historyIncomplete
   const processMember = routedNode !== undefined
     && processWindowReady
     && !TURN_PROCESS_INDEPENDENT_KINDS.has(routedNode.kind)
     && routedNode.anchorSeq >= processSpec.processStartSeq
-    && routedNode.anchorSeq < processSpec.answerAnchorSeq
+    && routedNode.anchorSeq < answerAnchorSeq
   const processAnswer = routedNode !== undefined
     && processWindowReady
     && routedNode.kind === 'assistant-step'
-    && routedNode.data.step === processSpec.answerStep
+    && routedNode.data.step === answerStep
   const ownsDisclosure = routedNode?.kind === 'turn-process' || processAnswer
   const foldable = processWindowReady
     && (processMember || (ownsDisclosure

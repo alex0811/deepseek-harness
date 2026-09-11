@@ -1520,7 +1520,7 @@ describe('ChatView', () => {
     expect(answer?.hasAttribute('data-turn-process-answer')).toBe(false)
   })
 
-  it('keeps a live Turn expanded and folds it once at turn/end', () => {
+  it('folds a live Turn under its controller and keeps the trailing answer streaming', () => {
     const process = assistant(2, 'inspect', 1, 1)
     const h = makeHarness({
       nodes: [user(1, 'question'), process],
@@ -1528,9 +1528,18 @@ describe('ChatView', () => {
       running: true,
     })
     const view = render(<h.ChatView {...h.props} />)
-    expect(turnProcessControl(view.container)).toBeNull()
     const processRow = view.getByText('inspect').closest('[data-chat-flow-kind="assistant-step"]') as HTMLElement
 
+    // Concise mode folds the finished process while the Turn still runs...
+    const toggle = turnProcessControl(view.container)!
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    expect(processRow.getAttribute('hidden')).toBe('until-found')
+    // ...and the trailing step keeps streaming its answer.
+    expect(view.getByText('streaming answer')).toBeTruthy()
+
+    // A live expansion carries over to the settled answer instead of resetting.
+    fireEvent.click(toggle)
+    expect(processRow.getAttribute('hidden')).toBeNull()
     act(() => {
       h.set({
         nodes: [user(1, 'question'), process, assistant(4, 'settled answer', 1, 2)],
@@ -1539,9 +1548,74 @@ describe('ChatView', () => {
         turnEnds: new Map([[1, 5]]),
       })
     })
+    expect(turnProcessControl(view.container)?.getAttribute('aria-expanded')).toBe('true')
+    expect(processRow.getAttribute('hidden')).toBeNull()
+    expect(view.getByText('settled answer')).toBeTruthy()
+  })
+
+  it('folds finished steps so Concise mode keeps one live Think row', () => {
+    const h = makeHarness({
+      nodes: [user(1, 'question'), reasoningAssistant(2, 'first analysis', 1, 1), toolResult(3, 'a')],
+      partial: { turn: 1, step: 2, blocks: [{ kind: 'reasoning', text: 'second analysis' }] },
+      running: true,
+    })
+    const view = render(<h.ChatView {...h.props} />)
     const toggle = turnProcessControl(view.container)!
+    const members = [...view.container.querySelectorAll<HTMLElement>('[data-turn-process-member]')]
+
     expect(toggle.getAttribute('aria-expanded')).toBe('false')
-    expect(processRow.getAttribute('hidden')).toBe('until-found')
+    expect(toggle.getAttribute('data-turn-process-tool-calls')).toBe('1')
+    expect(members.map(member => member.dataset.chatFlowKind)).toEqual(['assistant-step', 'tool-call'])
+    expect(members.map(member => member.getAttribute('hidden'))).toEqual(['until-found', 'until-found'])
+    expect(members[0]?.textContent).toContain('first analysis')
+    // Only the trailing step reasons visibly, and its own Think row is not folded.
+    expect(view.container.querySelectorAll('[data-variant="think"][data-state="running"]')).toHaveLength(1)
+    expect(view.container.querySelectorAll('[data-turn-process-inline]')).toHaveLength(0)
+
+    fireEvent.click(toggle)
+    expect(members.map(member => member.getAttribute('hidden'))).toEqual([null, null])
+  })
+
+  it('shows the whole running Turn again in the standard mode', () => {
+    const h = makeHarness({
+      nodes: [user(1, 'question'), reasoningAssistant(2, 'first analysis', 1, 1), toolResult(3, 'a')],
+      partial: { turn: 1, step: 2, blocks: [{ kind: 'reasoning', text: 'second analysis' }] },
+      running: true,
+    })
+    const view = render(<h.ChatView {...h.props} />)
+    expect(turnProcessControl(view.container)).not.toBeNull()
+
+    act(() => { h.setTranscriptView('normal') })
+    expect(turnProcessControl(view.container)).toBeNull()
+    const rows = [...view.container.querySelectorAll<HTMLElement>('[data-chat-flow-kind="assistant-step"]')]
+    expect(rows.map(row => row.getAttribute('hidden'))).toEqual([null, null])
+    expect(view.container.querySelector('[data-chat-flow-kind="tool-call"]')?.getAttribute('hidden')).toBeNull()
+  })
+
+  it('keeps a live expansion across a step boundary until the reader collapses it', () => {
+    const process = assistant(2, 'inspect', 1, 1)
+    const h = makeHarness({
+      nodes: [user(1, 'question'), process],
+      partial: { turn: 1, step: 2, blocks: [{ kind: 'text', text: 'streaming answer' }] },
+      running: true,
+    })
+    const view = render(<h.ChatView {...h.props} />)
+    fireEvent.click(turnProcessControl(view.container)!)
+    expect(turnProcessControl(view.container)?.getAttribute('aria-expanded')).toBe('true')
+
+    act(() => {
+      h.set({
+        nodes: [user(1, 'question'), process, assistant(4, 'second step', 1, 2)],
+        partial: { turn: 1, step: 3, blocks: [{ kind: 'text', text: 'third step' }] },
+        running: true,
+      })
+    })
+    // The provisional answer re-keyed from step 2 to step 3, and the expansion held.
+    expect(turnProcessControl(view.container)?.getAttribute('aria-expanded')).toBe('true')
+    expect(view.getByText('third step')).toBeTruthy()
+
+    fireEvent.click(turnProcessControl(view.container)!)
+    expect(turnProcessControl(view.container)?.getAttribute('aria-expanded')).toBe('false')
   })
 
   it('switches completed Turns between the persisted Normal and Compact modes', () => {
