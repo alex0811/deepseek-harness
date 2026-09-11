@@ -37,12 +37,10 @@ npx @deepseek-ai/dsh web
 ```sh
 git clone https://github.com/deepseek-ai/deepseek-harness.git
 cd deepseek-harness
-pnpm install
-pnpm run build
-pnpm dsh web
+./scripts/run-from-source.sh
 ```
 
-`pnpm run build` 会准备仓库产物。`pnpm dsh web` 会直接使用这些已构建产物，不会重新构建。
+该脚本会安装依赖、准备仓库产物并启动 Web UI。`--no-open` 等参数会传递给 `dsh web`。
 
 ## 社区与支持
 
