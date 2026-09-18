@@ -13,6 +13,11 @@ import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { parseDshArgs } from './args.ts'
 import { reportStartupFailure } from './startup-diagnostics.ts'
 
+// tsx projects workspace imports to source unconditionally. Keep configured
+// plugins on that same module graph; the built entry omits this override and
+// uses runProfile's runtime-resolution default.
+const sourceResolutionMode = import.meta.url.endsWith('/src/bin.ts') ? 'link' : undefined
+
 // Both the source tree (apps/cli/src) and the bundled bin (apps/cli/lib) sit
 // one directory under apps/cli, so the checked-in manifest resolves with the
 // same relative hop from either artifact.
@@ -41,6 +46,7 @@ export async function runCli(): Promise<void> {
           fromDefaultProfile: invocation.fromDefaultProfile,
           patchFiles: invocation.patches,
           args: invocation.args,
+          ...(sourceResolutionMode === undefined ? {} : { resolutionMode: sourceResolutionMode }),
         })
       } catch (error) {
         if (!(error instanceof StartupError)) throw error
