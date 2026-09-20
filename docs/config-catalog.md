@@ -2574,6 +2574,39 @@ export interface Config {
 
 Source: [`packages/ssh/ssh/src/index.ts:17`](../packages/ssh/ssh/src/index.ts)
 
+<a id="deepseek-aidsh-stale-plan-reminder"></a>
+
+## `@deepseek-ai/dsh-stale-plan-reminder`
+
+Requires: `sessionProjections`
+
+```ts config-catalog
+/**
+ * Plugin config, validated by the same-named schemastery schema plus the
+ * load-time checks in `apply`. Misconfiguration fails loud at plugin load —
+ * an empty `thresholds` list, a non-integer, a value below 1, a duplicate, or
+ * a non-positive `previewItems` throws, never a silent fallback.
+ *
+ * Both fields are required because both are deployment choices with no
+ * universally correct value: the cadence trades reminder tokens against how
+ * long a stale plan stays on screen, and the preview bounds the reminder's
+ * data-dependent text.
+ */
+export interface Config {
+  /**
+   * Completed tool calls since the plan last changed that trigger a reminder;
+   * ascending, unique, integers >= 1. Reminders fire at exactly these counts,
+   * so a run longer than the largest threshold draws no further nudge until
+   * the model writes the list again.
+   */
+  thresholds: number[]
+  /** Unfinished items quoted in one reminder; further items collapse into a trailing count. */
+  previewItems: number
+}
+```
+
+Source: [`packages/guard/stale-plan-reminder/src/index.ts:37`](../packages/guard/stale-plan-reminder/src/index.ts)
+
 <a id="deepseek-aidsh-storage-domain"></a>
 
 ## `@deepseek-ai/dsh-storage-domain`

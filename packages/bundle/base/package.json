@@ -85,6 +85,7 @@
     "@deepseek-ai/dsh-skill-filesystem": "workspace:^",
     "@deepseek-ai/dsh-spill-local": "workspace:^",
     "@deepseek-ai/dsh-spill-policy": "workspace:^",
+    "@deepseek-ai/dsh-stale-plan-reminder": "workspace:^",
     "@deepseek-ai/dsh-storage": "workspace:^",
     "@deepseek-ai/dsh-storage-domain": "workspace:^",
     "@deepseek-ai/dsh-storage-json": "workspace:^",

@@ -444,6 +444,14 @@
         thresholds: [3, 5, 8]
         argumentsPreviewChars: 500
 
+    # To-do maintenance reminders: the standing plan is a whole-list snapshot, so
+    # a model that stops writing it leaves the dock showing finished work as open.
+    - id: stale-plan-reminder
+      name: '@deepseek-ai/dsh-stale-plan-reminder'
+      config:
+        thresholds: [10, 25, 60]
+        previewItems: 5
+
     # The shared base enables the stable model-facing web_search and web_fetch
     # tools. The Web app disables this host row and composes both tools per agent
     # preset; products with a stricter network policy override tool-web. DeepSeek
