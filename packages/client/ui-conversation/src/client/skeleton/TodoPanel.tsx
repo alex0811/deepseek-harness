@@ -1,6 +1,7 @@
-import { useId, useState } from 'react'
+import { useId } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
-import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
+import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 // The domain's client-namespace pure-type outlet: one import edge delivers
 // the `todos` projection-key merge (single source, no consumer-side restated
 // declare) and the payload type. Type-only by construction — the outlet is
@@ -8,11 +9,16 @@ import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots
 import type { TodoItem } from '@deepseek-ai/dsh-tool-todo/client'
 import { IconChecklistOutline14, IconChevronDownOutline14, IconChevronUpOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { NS } from '../locales.ts'
+import { createTodoExpansionStore } from './todo-expansion-store.ts'
 import css from './TodoPanel.module.css'
 
 export interface TodoPanelProps {
   /** The session's current plan (empty renders nothing) — selected by the dock adapter. */
   todos: readonly TodoItem[]
+  /** Whether the plan rows show; the dock supplies the persisted preference. */
+  expanded: boolean
+  /** Flip the expansion preference. */
+  onToggleExpanded: () => void
   /** The dock entry's locale seat, passed down as a plain prop. */
   t: TodoDockProps['t']
 }
@@ -85,8 +91,7 @@ function progressLabel(todos: readonly TodoItem[], t: TodoPanelProps['t']): stri
   ].join('\u2002·\u2002')
 }
 
-export function TodoPanel({ todos, t }: TodoPanelProps) {
-  const [collapsed, setCollapsed] = useState(true)
+export function TodoPanel({ todos, expanded, onToggleExpanded, t }: TodoPanelProps) {
   if (todos.length === 0) return null
 
   return (
@@ -95,17 +100,17 @@ export function TodoPanel({ todos, t }: TodoPanelProps) {
         <button
           type="button"
           className={css.header}
-          aria-expanded={!collapsed}
-          onClick={() => { setCollapsed(v => !v) }}
+          aria-expanded={expanded}
+          onClick={onToggleExpanded}
         >
           <span className={css.lead} aria-hidden><IconChecklistOutline14 /></span>
           <span className={css.title}>{t('todo.title')}</span>
           <span className={css.progress}>{progressLabel(todos, t)}</span>
           <span className={css.chevron} aria-hidden>
-            {collapsed ? <IconChevronUpOutline14 /> : <IconChevronDownOutline14 />}
+            {expanded ? <IconChevronDownOutline14 /> : <IconChevronUpOutline14 />}
           </span>
         </button>
-        {!collapsed && (
+        {expanded && (
           <ul className={css.list}>
             {todos.map(item => (
               <li key={item.content} className={css.item} data-status={item.status}>
@@ -120,13 +125,34 @@ export function TodoPanel({ todos, t }: TodoPanelProps) {
   )
 }
 
+/** Registration-side plan-strip preference. */
+export interface TodoDockInjected {
+  hooks: {
+    /** Browser-wide expansion preference, bound as `useTodoExpanded`. */
+    todoExpanded: SnapshotStore<boolean>
+  }
+  /** Remember an expansion change for every Session and later reloads. */
+  setTodoExpanded: (expanded: boolean) => void
+}
+
 /** Props for the projected todo dock. */
-export type TodoDockProps = PropsRuntime<'conversation.input.dock'> & PropsLocale<'conversation'>
+export type TodoDockProps =
+  PropsRuntime<'conversation.input.dock'>
+  & InjectFace<TodoDockInjected>
+  & PropsLocale<'conversation'>
 
 /** Renders the current todo projection, or nothing when it is absent. */
-export function TodoDock({ useProjection, t }: TodoDockProps) {
+export function TodoDock({ useProjection, useTodoExpanded, setTodoExpanded, t }: TodoDockProps) {
   const todos = useProjection('todos')
-  return <TodoPanel todos={todos ?? []} t={t} />
+  const expanded = useTodoExpanded(value => value)
+  return (
+    <TodoPanel
+      todos={todos ?? []}
+      expanded={expanded}
+      onToggleExpanded={() => { setTodoExpanded(!expanded) }}
+      t={t}
+    />
+  )
 }
 
 /** Registers the projected todo dock. */
@@ -134,7 +160,17 @@ export const todoDockEntry = {
   name: 'conversation-todo-dock',
   inject: ['slots'],
   apply(ctx: Context): void {
+    const expansion = createTodoExpansionStore()
     ctx.slots.inject('conversation.input.dock', () =>
-      ctx.slots.register({ name: 'conversation.input.dock', id: 'todo', order: 0, locale: NS }, TodoDock))
+      ctx.slots.register({
+        name: 'conversation.input.dock',
+        id: 'todo',
+        order: 0,
+        locale: NS,
+        inject: (): TodoDockInjected => ({
+          hooks: { todoExpanded: expansion },
+          setTodoExpanded: (expanded) => { expansion.set(expanded) },
+        }),
+      }, TodoDock))
   },
 }

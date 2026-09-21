@@ -2,21 +2,27 @@
 /**
  * Todo display acceptance: the TodoPanel plan strip (empty-hidden, status rows
  * including several `in_progress` at once, collapse), and its TodoDock
- * adapter (selects the plan off the session snapshot and follows changes).
+ * adapter (selects the plan off the session snapshot, follows changes, and
+ * keeps the expansion preference across Session switches and reloads).
  */
+import { useState } from 'react'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { bindSnapshotSelector, makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { TodoItem } from '@deepseek-ai/dsh-tool-todo/client'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
-import type { TodoDockProps } from '../src/client/skeleton/TodoPanel.tsx'
+import type { TodoDockInjected, TodoDockProps } from '../src/client/skeleton/TodoPanel.tsx'
 import { TodoDock, TodoPanel, todoDockEntry } from '../src/client/skeleton/TodoPanel.tsx'
+import { createTodoExpansionStore } from '../src/client/skeleton/todo-expansion-store.ts'
 import { NS, zh } from '../src/client/locales.ts'
 
 const t: TodoDockProps['t'] = makeTranslate(zh, commonZh)
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  localStorage.clear()
+})
 
 const LIST: TodoItem[] = [
   { content: '搭骨架', status: 'completed' },
@@ -33,14 +39,29 @@ const PARALLEL: TodoItem[] = [
   { content: '补测试', status: 'pending' },
 ]
 
+/** The panel is controlled and the dock owns the preference in production, so behavior tests carry the expansion state here. */
+function PanelHarness({ todos }: { todos: readonly TodoItem[] }) {
+  const [expanded, setExpanded] = useState(false)
+  return (
+    <TodoPanel
+      todos={todos}
+      expanded={expanded}
+      onToggleExpanded={() => { setExpanded(value => !value) }}
+      t={t}
+    />
+  )
+}
+
 describe('TodoPanel', () => {
   it('renders nothing while the list is empty', () => {
-    const { container } = render(<TodoPanel todos={[]} t={t} />)
+    const { container } = render(
+      <TodoPanel todos={[]} expanded={false} onToggleExpanded={() => {}} t={t} />,
+    )
     expect(container.innerHTML).toBe('')
   })
 
   it('starts collapsed with the per-status count summary visible', () => {
-    render(<TodoPanel todos={LIST} t={t} />)
+    render(<PanelHarness todos={LIST} />)
     expect(screen.getByTestId('todo-panel')).toBeTruthy()
     expect(screen.getByText('任务')).toBeTruthy()
     expect(screen.getByText('1 已完成 · 1 进行中 · 1 待处理')).toBeTruthy()
@@ -49,16 +70,16 @@ describe('TodoPanel', () => {
   })
 
   it('omits the completed segment while nothing is done yet', () => {
-    render(<TodoPanel todos={[
+    render(<PanelHarness todos={[
       { content: '写组件', status: 'in_progress' },
       { content: '补测试', status: 'pending' },
-    ]} t={t} />)
+    ]} />)
     expect(screen.getByText('1 进行中 · 1 待处理')).toBeTruthy()
     expect(screen.queryByText(/已完成/)).toBeNull()
   })
 
   it('expands to show one row per item with its status glyph', () => {
-    render(<TodoPanel todos={LIST} t={t} />)
+    render(<PanelHarness todos={LIST} />)
     fireEvent.click(screen.getByRole('button', { expanded: false }))
     const items = screen.getAllByRole('listitem')
     expect(items.map(li => li.getAttribute('data-status'))).toEqual(['completed', 'in_progress', 'pending'])
@@ -69,7 +90,7 @@ describe('TodoPanel', () => {
   })
 
   it('collapse hides an expanded list; expand restores; header keeps the count summary', () => {
-    render(<TodoPanel todos={LIST} t={t} />)
+    render(<PanelHarness todos={LIST} />)
     fireEvent.click(screen.getByRole('button', { expanded: false }))
     const header = screen.getByRole('button', { expanded: true })
     fireEvent.click(header)
@@ -82,7 +103,7 @@ describe('TodoPanel', () => {
   })
 
   it('marks every parallel active item, and counts them all in the header', () => {
-    render(<TodoPanel todos={PARALLEL} t={t} />)
+    render(<PanelHarness todos={PARALLEL} />)
     fireEvent.click(screen.getByRole('button', { expanded: false }))
     // An unconditional in-progress cap would make this list unreachable: three
     // items carry the in-progress glyph at once, and the header counts all three.
@@ -94,7 +115,7 @@ describe('TodoPanel', () => {
   })
 
   it('an all-completed list collapses the summary to the done count alone', () => {
-    render(<TodoPanel todos={[{ content: '都完了', status: 'completed' }]} t={t} />)
+    render(<PanelHarness todos={[{ content: '都完了', status: 'completed' }]} />)
     expect(screen.getByRole('button', { expanded: false })).toBeTruthy()
     expect(screen.queryByText('都完了')).toBeNull()
     expect(screen.getByText('1 已完成')).toBeTruthy()
@@ -102,17 +123,42 @@ describe('TodoPanel', () => {
   })
 })
 
-/** Dock props stub: the adapter reads the 'todos' projection only; the rest of the owner share is unused. */
-function dockProps(store: ReturnType<typeof createSnapshotStore<{ value: readonly TodoItem[] | null | undefined }>>): TodoDockProps {
+/** The registration's inject face over one preference source. */
+function injectedFace(expansion = createTodoExpansionStore()): TodoDockInjected {
+  return {
+    hooks: { todoExpanded: expansion },
+    setTodoExpanded: (expanded) => { expansion.set(expanded) },
+  }
+}
+
+/** Dock props stub: the adapter reads the 'todos' projection and the injected preference; the rest of the owner share is unused. */
+function dockProps(
+  store: ReturnType<typeof createSnapshotStore<{ value: readonly TodoItem[] | null | undefined }>>,
+  injected: TodoDockInjected,
+): TodoDockProps {
   const useProjection = (_key: string, selector?: (v: unknown) => unknown) =>
     bindSnapshotSelector(store)(s => (selector ?? (v => v))(s.value))
-  return { useProjection, t } as unknown as TodoDockProps
+  return {
+    useProjection,
+    useTodoExpanded: bindSnapshotSelector(injected.hooks.todoExpanded),
+    setTodoExpanded: injected.setTodoExpanded,
+    t,
+  } as unknown as TodoDockProps
+}
+
+/** Registration options the dock entry hands to `slots.register`. */
+interface TodoDockRegistration {
+  name: string
+  id: string
+  order: number
+  locale: string
+  inject?: () => TodoDockInjected
 }
 
 describe('TodoDock', () => {
   it('reads the host-computed todos projection and follows pushed updates', () => {
     const store = createSnapshotStore<{ value: readonly TodoItem[] | null | undefined }>({ value: undefined })
-    render(<TodoDock {...dockProps(store)} />)
+    render(<TodoDock {...dockProps(store, injectedFace())} />)
     // Capability absent (no baseline/frame yet) renders nothing.
     expect(screen.queryByTestId('todo-panel')).toBeNull()
     act(() => { store.set({ value: LIST }) })
@@ -122,13 +168,63 @@ describe('TodoDock', () => {
     expect(screen.queryByTestId('todo-panel')).toBeNull()
   })
 
-  it('registers before the goal and queue entries', () => {
+  it('follows the injected expansion preference and remembers each toggle', () => {
+    const store = createSnapshotStore<{ value: readonly TodoItem[] | null | undefined }>({ value: LIST })
+    const expansion = createTodoExpansionStore()
+    render(<TodoDock {...dockProps(store, injectedFace(expansion))} />)
+    expect(screen.getByRole('button', { expanded: false })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { expanded: false }))
+    expect(expansion.getSnapshot()).toBe(true)
+    expect(screen.getAllByRole('listitem')).toHaveLength(3)
+
+    fireEvent.click(screen.getByRole('button', { expanded: true }))
+    expect(expansion.getSnapshot()).toBe(false)
+    expect(screen.queryByRole('list')).toBeNull()
+
+    // A preference changed elsewhere reaches the mounted strip.
+    act(() => { expansion.set(true) })
+    expect(screen.getAllByRole('listitem')).toHaveLength(3)
+  })
+
+  it('keeps the strip expanded across a Session switch, which remounts the dock', () => {
+    const store = createSnapshotStore<{ value: readonly TodoItem[] | null | undefined }>({ value: LIST })
+    const dock = dockProps(store, injectedFace())
+
+    const first = render(<TodoDock {...dock} />)
+    fireEvent.click(screen.getByRole('button', { expanded: false }))
+    first.unmount()
+
+    // The Session-scoped dock subtree is re-keyed per Session; the strip must
+    // come back the way the user left it.
+    render(<TodoDock {...dock} />)
+    expect(screen.getByRole('button', { expanded: true })).toBeTruthy()
+    expect(screen.getAllByRole('listitem')).toHaveLength(3)
+  })
+
+  it('restores the remembered preference after a reload', () => {
+    createTodoExpansionStore().set(true)
+    expect(createTodoExpansionStore().getSnapshot()).toBe(true)
+  })
+
+  it('registers before the goal and queue entries, publishing the persisted preference', () => {
     expect(todoDockEntry.name).toBe('conversation-todo-dock')
     expect(todoDockEntry.inject).toEqual(['slots'])
-    const register = vi.fn(() => () => undefined)
+    const register = vi.fn((_options: TodoDockRegistration) => () => undefined)
     const inject = vi.fn((_name: string, callback: () => () => void) => callback())
     todoDockEntry.apply({ slots: { inject, register } } as never)
     expect(inject).toHaveBeenCalledWith('conversation.input.dock', expect.any(Function))
-    expect(register).toHaveBeenCalledWith({ name: 'conversation.input.dock', id: 'todo', order: 0, locale: NS }, TodoDock)
+    expect(register).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'conversation.input.dock',
+      id: 'todo',
+      order: 0,
+      locale: NS,
+    }), TodoDock)
+
+    // The registered face hands the component the live preference and writes it back.
+    const face = register.mock.calls[0]?.[0].inject?.()
+    expect(face?.hooks.todoExpanded.getSnapshot()).toBe(false)
+    face?.setTodoExpanded(true)
+    expect(face?.hooks.todoExpanded.getSnapshot()).toBe(true)
   })
 })
