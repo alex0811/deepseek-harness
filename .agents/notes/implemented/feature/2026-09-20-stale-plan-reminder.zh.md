@@ -16,9 +16,9 @@ Status: implemented
 
 `@deepseek-ai/dsh-stale-plan-reminder` 是位于 `guard/` 组、与 `repeat-tool-reminder` 并列的顾问型守卫。它在每次 `tools/post-execute` 时读取 `todos` 投影——也就是面板渲染的同一个值，因此守卫不持有清单的第二份副本——并统计该清单值上次变化以来完成的工具调用次数。投影在每次 `todo/write` 时发布新数组、在 `turn/start` 时发布 `null`，因此引用变化恰好意味着"模型发布了新清单"，计数随之归零。
 
-当计数命中配置的阈值且清单仍有未完成项时，守卫把一条提醒附加到 post-execute 决策的 `additionalContexts` 上。提醒说明已经过去多少次工具调用、列出未完成项（最多 `previewItems` 条，按长度截断，末尾给出剩余数量），并要求发出完整的更新后清单。它从不阻塞、改写或延迟任何调用，并且始终通过 `next()` 委派，让后续监听者保留自己的否决权。
+当计数命中配置的阈值——或超过最大阈值后命中其倍数——且清单仍有未完成项时，守卫把一条提醒附加到 post-execute 决策的 `additionalContexts` 上。提醒说明已经过去多少次工具调用、列出未完成项（最多 `previewItems` 条，按长度截断，末尾给出剩余数量），并要求发出完整的更新后清单。它从不阻塞、改写或延迟任何调用，并且始终通过 `next()` 委派，让后续监听者保留自己的否决权。
 
-两个配置字段都是必填：`thresholds`（触发提醒的工具调用计数，升序且不重复）与 `previewItems`（一条提醒摘录多少未完成项）。`dsh` 基础 bundle 以 `[10, 25, 60]` 与 `previewItems: 5` 启用本守卫，因此上面那种执行会收到三次提醒而不是零次。
+两个配置字段都是必填：`thresholds`（触发提醒的工具调用计数，升序且不重复）与 `previewItems`（一条提醒摘录多少未完成项）。`dsh` 基础 bundle 以 `[10, 25, 60]` 与 `previewItems: 5` 启用本守卫，因此上面那种执行会先收到三次提醒，此后每多 60 次调用再收到一次。
 
 当 `todos` 单元未注册（未挂载 `tool-todo` 的 preset 没有需要维护的清单）、清单已全部完成、以及没有所属 agent 的直接 `ctx.tools.execute` 调用者时，守卫保持静默。进度保存在 `WeakMap<Session, Progress>` 中，因此各会话独立计数、不落盘、恢复的会话从零开始。
 
@@ -40,12 +40,12 @@ Status: implemented
 
 ## Consequences
 
-提醒会成为所属 agent 的保留上下文——其规模由 `previewItems`、80 字符的条目上限以及配置的阈值共同约束，且超过最大阈值后不再提醒，直到模型重写清单。内容相同但重写过的清单同样会重新计数，因为守卫检测的是"发布"而非"变化"，而重写正是提醒所要求的动作。守卫只是顾问：忽视全部三次提醒的模型仍会留下过期清单，面板也仍然无法显示模型从未记录过的工作。
+提醒会成为所属 agent 的保留上下文——其规模由 `previewItems`、80 字符的条目上限以及节奏共同约束：节奏在每个配置阈值触发，此后按最大阈值每隔那么多次调用重复一次。内容相同但重写过的清单同样会重新计数，因为守卫检测的是"发布"而非"变化"，而重写正是提醒所要求的动作。守卫只是顾问：忽视每一次提醒的模型仍会留下过期清单，面板也仍然无法显示模型从未记录过的工作。
 
 守卫也无法核实它所询问的工作，会为每个挂载基础 bundle 的部署增加一个 `tools/post-execute` 监听器，并且只按会话保存在内存中——进程重启只会丢失计数，绝不会丢失计划。卸载该行即可完全恢复此前的行为。
 
 ## Testing
 
-- `packages/guard/stale-plan-reminder/tests/stale-plan-reminder.spec.ts` 用脚本化 mock 模型驱动真实 agent loop：逐字比对提醒文本与来源、阈值节奏、重写计划后重新计数、已全部完成/单元未注册/无 agent 调用时的静默、摘录上限与条目截断、按会话计数、经 `next()` 委派、被阻塞决策上的折叠，以及配置非法时启动即失败。
+- `packages/guard/stale-plan-reminder/tests/stale-plan-reminder.spec.ts` 用脚本化 mock 模型驱动真实 agent loop：逐字比对提醒文本与来源、阈值节奏及其超过最大阈值后的重复、重写计划后重新计数、已全部完成/单元未注册/无 agent 调用时的静默、摘录上限与条目截断、按会话计数、经 `next()` 委派、被阻塞决策上的折叠，以及配置非法时启动即失败。
 - `packages/guard/stale-plan-reminder/tests/loader-composition.spec.ts` 通过真实 Loader 从 `cordis.yml` 启动插件，证明配置字段确实驱动行为，且缺少字段会在加载时失败。
 - `snapshots/session/stale-plan-reminder/` 回放一个已提交的会话，固定住模型可见的提醒：写计划、十次工具调用、第十次触发提醒、给出最终答复。

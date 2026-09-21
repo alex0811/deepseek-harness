@@ -176,6 +176,29 @@ describe('reminder cadence', () => {
     expect(found[0]!.text).toContain('has not been updated for 3 tool calls')
   })
 
+  it('keeps reminding past the largest threshold at that stride', async () => {
+    const ctx = await harness({ thresholds: [2, 3], previewItems: 5 })
+    const agent = await run(ctx, 'stale-plan-repeat', new MockAdapter([
+      toolCallResponse('c1', 'todo_write', { todos: PLAN }),
+      toolCallResponse('c2', 'probe', {}),
+      toolCallResponse('c3', 'probe', {}),
+      toolCallResponse('c4', 'probe', {}),
+      toolCallResponse('c5', 'probe', {}),
+      toolCallResponse('c6', 'probe', {}),
+      toolCallResponse('c7', 'probe', {}),
+      toolCallResponse('c8', 'probe', {}),
+      textResponse('done'),
+    ]))
+
+    // Counts 1..7 after the write: both thresholds fire, the calls between the
+    // largest threshold and its next multiple stay quiet, and count 6 repeats.
+    expect(reminders(agent).map(entry => entry.source)).toEqual([
+      guardSource(2, 2),
+      guardSource(2, 3),
+      guardSource(2, 6),
+    ])
+  })
+
   it('quotes at most previewItems open items and counts the rest', async () => {
     const ctx = await harness({ thresholds: [1], previewItems: 2 })
     const agent = await run(ctx, 'stale-plan-6', new MockAdapter([

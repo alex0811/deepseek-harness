@@ -42,14 +42,14 @@ Choose it when a Session's plan is user-visible and should follow the work: with
 
 | Field | Required | Meaning |
 |---|---|---|
-| `thresholds` | yes | Completed tool calls since the plan last changed that trigger a reminder; ascending, unique, integers >= 1 |
+| `thresholds` | yes | Completed tool calls since the plan last changed that trigger a reminder; ascending, unique, integers >= 1. Past the largest count the reminder repeats every `largest` calls |
 | `previewItems` | yes | Unfinished items quoted in one reminder; the rest collapse into a trailing count |
 
 Both fields are required — cadence and preview length are deployment choices with no universally correct value. Invalid configuration fails at startup with a clear error — an empty list, a count below 1, a duplicate, or a non-positive preview — never a silent change of behavior. The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-stale-plan-reminder) documents every accepted value.
 
 ### What you get
 
-With the shipped configuration, a model that keeps working for ten tool calls without touching the list receives a reminder naming the open items; twenty-five and sixty calls bring the same nudge again if the list is still unchanged, and a plan rewrite restarts the count. A turn that retires the plan (`turn/start`) also restarts it, so a fresh turn never inherits a stale count. Sessions without a plan, and Sessions whose plan is fully completed, receive nothing.
+With the shipped configuration, a model that keeps working for ten tool calls without touching the list receives a reminder naming the open items; twenty-five and sixty calls bring the same nudge again if the list is still unchanged, and a plan rewrite restarts the count. A run that outlasts the cadence keeps drawing the nudge every sixty calls, so the longest executions never fall silent with a stale list on screen. A turn that retires the plan (`turn/start`) also restarts it, so a fresh turn never inherits a stale count. Sessions without a plan, and Sessions whose plan is fully completed, receive nothing.
 
 -----
 
@@ -139,7 +139,7 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 These limits define when the guard is a poor fit. They are current package constraints, not a task backlog.
 
-- **Reminders stop after the largest threshold** — a run that outlives `thresholds` draws no further nudge until the model rewrites the list or the config lists another count.
+- **The tail cadence is fixed** — past the largest threshold the reminder repeats every `largest` calls, with no backoff and no wall-clock input, so a very long execution pays that reminder's tokens at a steady rate whether or not the model is deliberately keeping its list.
 - **It cannot check the work, only the bookkeeping** — the guard never marks items complete itself; it asks the model, which may still decline or batch.
 - **A plan rewritten with identical content restarts the count** — the guard detects publication (a new projection reference), not whether anything changed.
 - **Compaction does not reset the count** — a count spanning a compaction checkpoint keeps running.
@@ -154,6 +154,6 @@ These limits define when the guard is a poor fit. They are current package const
 
 This Dev Note is working context for maintainers: open questions and directions that are not decided. It is explicitly non-authoritative — shipped behavior, limits, and accepted rationale live in the sections above and in the package code.
 
-Open questions: whether a sustained cadence past the largest threshold helps more than it costs in retained context, and whether the reminder should quantify elapsed wall-clock time alongside tool calls.
+Open question: whether the reminder should quantify elapsed wall-clock time alongside tool calls.
 
 </details>

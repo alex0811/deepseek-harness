@@ -38,8 +38,8 @@ export interface Config {
   /**
    * Completed tool calls since the plan last changed that trigger a reminder;
    * ascending, unique, integers >= 1. Reminders fire at exactly these counts,
-   * so a run longer than the largest threshold draws no further nudge until
-   * the model writes the list again.
+   * and past the largest one they repeat every `largest` calls, so a run that
+   * outlasts the cadence keeps drawing the nudge instead of falling silent.
    */
   thresholds: number[]
   /** Unfinished items quoted in one reminder; further items collapse into a trailing count. */
@@ -69,25 +69,35 @@ interface Progress {
   sincePlan: number
 }
 
+/** Validated cadence: the counts that fire, and the stride a longer run repeats at. */
+interface Cadence {
+  /** Ascending thresholds, as the reminder text reports them. */
+  thresholds: number[]
+  /** Largest configured threshold: the interval a run past the cadence repeats at. */
+  stride: number
+}
+
 /**
- * Validate `thresholds` per the fail-loud contract and return them sorted
- * ascending, so the emitted counts read in the order they fire.
+ * Validate `thresholds` per the fail-loud contract and return them normalized:
+ * ascending, with the largest one as the stride a longer run repeats at.
  * @param values - configured thresholds.
- * @returns the validated thresholds in ascending order.
+ * @returns the validated cadence.
  */
-function validateThresholds(values: number[]): number[] {
+function validateCadence(values: number[]): Cadence {
   if (values.length === 0) {
     throw new Error('stale-plan-reminder: `thresholds` must not be empty')
   }
+  let stride = 0
   for (const value of values) {
     if (!Number.isInteger(value) || value < 1) {
       throw new Error(`stale-plan-reminder: invalid threshold ${String(value)} — every threshold must be an integer >= 1`)
     }
+    if (value > stride) stride = value
   }
   if (new Set(values).size !== values.length) {
     throw new Error('stale-plan-reminder: `thresholds` must not contain duplicates')
   }
-  return [...values].sort((left, right) => left - right)
+  return { thresholds: [...values].sort((left, right) => left - right), stride }
 }
 
 /**
@@ -100,6 +110,18 @@ function validatePreviewItems(value: number): number {
     throw new Error(`stale-plan-reminder: invalid previewItems ${String(value)} — must be an integer >= 1`)
   }
   return value
+}
+
+/**
+ * Whether one completed-tool-call count draws a reminder.
+ * @param sincePlan - completed tool calls since the plan value last changed.
+ * @param thresholds - validated ascending thresholds.
+ * @param stride - {@link Cadence.stride} of those thresholds.
+ * @returns whether this count fires: a configured threshold, or a multiple of the largest one beyond it.
+ */
+function firesAt(sincePlan: number, thresholds: readonly number[], stride: number): boolean {
+  if (thresholds.includes(sincePlan)) return true
+  return sincePlan > stride && sincePlan % stride === 0
 }
 
 /** Head-truncate one item line so a long task name cannot carry unbounded text into the next request. */
@@ -146,15 +168,15 @@ function prependContext(ours: UserMessage, theirs: UserMessage[] | undefined): U
  * @param config - validated {@link Config}; every field is re-checked fail-loud here.
  */
 export function apply(ctx: Context, config: Config): void {
-  const thresholds = validateThresholds(config.thresholds)
+  const { thresholds, stride } = validateCadence(config.thresholds)
   const previewItems = validatePreviewItems(config.previewItems)
   const progress = new WeakMap<Session, Progress>()
 
   /**
    * Advance one agent's counter and return the reminder to deliver, if this
-   * execution lands on a configured threshold. The plan is read from the
-   * projection registry — the same value the dock renders — so the guard never
-   * keeps a second copy of the list.
+   * execution lands on a firing count. The plan is read from the projection
+   * registry — the same value the dock renders — so the guard never keeps a
+   * second copy of the list.
    */
   function observe(exec: ToolExecution): UserMessage | undefined {
     // A direct `ctx.tools.execute()` caller has no model to remind and no plan owner.
@@ -169,7 +191,7 @@ export function apply(ctx: Context, config: Config): void {
     // null): the model just published a list, so counting restarts here.
     const sincePlan = previous !== undefined && previous.plan === plan ? previous.sincePlan + 1 : 0
     progress.set(session, { plan, sincePlan })
-    if (!thresholds.includes(sincePlan)) return undefined
+    if (!firesAt(sincePlan, thresholds, stride)) return undefined
     const unfinished = (plan ?? []).filter(item => item.status !== 'completed')
     if (unfinished.length === 0) return undefined
     return createUserMessage({

@@ -2596,8 +2596,8 @@ export interface Config {
   /**
    * Completed tool calls since the plan last changed that trigger a reminder;
    * ascending, unique, integers >= 1. Reminders fire at exactly these counts,
-   * so a run longer than the largest threshold draws no further nudge until
-   * the model writes the list again.
+   * and past the largest one they repeat every `largest` calls, so a run that
+   * outlasts the cadence keeps drawing the nudge instead of falling silent.
    */
   thresholds: number[]
   /** Unfinished items quoted in one reminder; further items collapse into a trailing count. */

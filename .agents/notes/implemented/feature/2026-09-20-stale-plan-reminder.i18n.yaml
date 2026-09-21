@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-20-stale-plan-reminder.md
-2026-09-20-stale-plan-reminder.md: 8443c9ae24b9b582f0d16b908c33c5c8cb54ba90
-2026-09-20-stale-plan-reminder.zh.md: 5c32d7959d064ab0aa2fc7744008e6d162bb49b8
+2026-09-20-stale-plan-reminder.md: e58735649c69ac1fe0216b59b21bf9b50ac45267
+2026-09-20-stale-plan-reminder.zh.md: ec6d9f1b36e9e482a470f3928751e7e592c38be0

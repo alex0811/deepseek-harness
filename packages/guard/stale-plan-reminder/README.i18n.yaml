@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/guard/stale-plan-reminder/README.md
-README.md: d40524e623a5f0c7bbe0b560bfd947096db9c29d
-README.zh.md: 61f5ddc62c7cd51bd18cda327ade2e9001cb5426
+README.md: 480dd04d281a0662e8d73f222918637a6d2893fc
+README.zh.md: 9eab3b71a259f55b46132ec2decb23e2fae489e3
