@@ -47,7 +47,17 @@
   - button "Compact":
     - text: Compact
     - img
-  - text: Send behavior while busy What Enter and the Send button do while the agent is running; Cmd/Ctrl+Enter uses the other behavior
+  - text: Task reminders Remind you when a task finishes or needs you; quiet while this window is focused When a task finishes
+  - switch "When a task finishes" [checked]
+  - text: When it waits for me
+  - switch "When it waits for me" [checked]
+  - text: Sound
+  - switch "Sound" [checked]
+  - text: System notification
+  - switch "System notification" [checked]
+  - text: Also remind while focused
+  - switch "Also remind while focused"
+  - text: Notifications are blocked; allow them in your browser settings, then try again Send behavior while busy What Enter and the Send button do while the agent is running; Cmd/Ctrl+Enter uses the other behavior
   - button "Queue":
     - text: Queue
     - img

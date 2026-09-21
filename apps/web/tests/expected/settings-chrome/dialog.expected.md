@@ -47,7 +47,17 @@
   - button "紧凑":
     - text: 紧凑
     - img
-  - text: 繁忙时的发送行为 智能体运行时 Enter 键和发送按钮的行为；Cmd/Ctrl+Enter 使用另一行为
+  - text: 任务提醒 任务跑完或需要你操作时提醒你，窗口在前台时默认不打扰 任务完成时
+  - switch "任务完成时" [checked]
+  - text: 等待我操作时
+  - switch "等待我操作时" [checked]
+  - text: 提示音
+  - switch "提示音" [checked]
+  - text: 系统通知
+  - switch "系统通知" [checked]
+  - text: 窗口在前台时也提醒
+  - switch "窗口在前台时也提醒"
+  - text: 浏览器已拒绝通知，请在浏览器设置中允许后重试 繁忙时的发送行为 智能体运行时 Enter 键和发送按钮的行为；Cmd/Ctrl+Enter 使用另一行为
   - button "排队发送":
     - text: 排队发送
     - img
